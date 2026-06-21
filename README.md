@@ -473,7 +473,7 @@ As consultas que relacionam concentração de PCD por zona com taxas de abstenç
 | qtComparecimento / qtAbstencao | Campos em perfis (nível de perfil/seção) | Movidos para nova coleção comparecimentoZona (nível zona+turno) |
 | Fontes de dados | 2 arquivos do TSE | 3 arquivos do TSE |
 
-
+![Figura 1 (revisada)](diagrama_uml_atualizado.png)
 ## 10. Diagrama de Classes UML Atualizado (Figura 1 revisada)
 
 O diagrama a seguir reapresenta o modelo conceitual completo do Checkpoint C2 (Figura 1 daquele documento), incorporando os dois ajustes descritos nas seções 7 e 8 desta nota. Classes inalteradas mantêm a cor original; classes alteradas e a classe nova são destacadas em contorno coral, com a respectiva mudança anotada na mesma cor.
