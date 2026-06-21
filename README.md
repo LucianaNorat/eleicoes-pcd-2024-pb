@@ -481,3 +481,42 @@ O diagrama a seguir reapresenta o modelo conceitual completo do Checkpoint C2 (F
 > **Figura 1 (revisada)** — Diagrama de classes UML atualizado com os ajustes da Nota de Acréscimo ao Checkpoint C2: inclusão de `dsSituAcessibilidade` em `SecaoEleitoral.localVotacao` (Ajuste 1) e criação da classe `ComparecimentoAbstencaoZona`, com remoção de `qtComparecimento`/`qtAbstencao` de PerfilEleitor (Ajuste 2).
 
 
+# NOTA DE ACRÉSCIMO AO CHECKPOINT C1
+
+## 11. Introdução e Justificativa do Acréscimo
+
+Durante o planejamento do pipeline de ETL no Checkpoint C3, a equipe incorporou uma
+terceira fonte de dados — `eleitorado_local_votacao_2024_PB.csv` — não prevista nas
+seções 2 e 3 do Checkpoint C1 (entregue em 08/06/2026). Essa fonte foi necessária para
+responder à pergunta de pesquisa sobre acessibilidade dos locais de votação.
+
+## 12. Atualização — Fontes de Dados (seção 2)
+
+O texto original do C1 afirmava que os arquivos de entrada eram dois. Esse trecho passa
+a ser lido como **três arquivos de entrada**, com a inclusão do terceiro:
+
+- `eleitorado_local_votacao_2024_PB.csv` — relação entre seções eleitorais, locais de
+  votação e situação de acessibilidade de cada seção (13.240 registros na Paraíba).
+
+## 13. Atualização — Metadados Descritivos (seção 2)
+
+| **Atributo** | **Descrição** |
+|---|---|
+| Volume — Arquivo 3 | 13.240 registros (eleitorado_local_votacao, recorte PB) |
+| Formato — Arquivo 3 | CSV, separado por ponto e vírgula, codificação Latin 1 |
+| Fonte — Arquivo 3 | Portal de Dados Abertos do TSE (mesma fonte e licença dos demais) |
+
+## 14. Atualização — Dicionário de Dados (seção 2)
+
+**Arquivo 3: `eleitorado_local_votacao_2024_PB.csv`**
+
+| **Campo** | **Tipo** | **Descrição** | **Exemplo** |
+|---|---|---|---|
+| SG_UF | String | Sigla da UF | PB |
+| CD_MUNICIPIO | Inteiro | Código TSE do município | 19003 |
+| NM_MUNICIPIO | String | Nome do município | JOÃO PESSOA |
+| NR_ZONA | Inteiro | Número da zona eleitoral | 1 |
+| NR_SECAO | Inteiro | Número da seção eleitoral | 42 |
+| NR_LOCAL_VOTACAO | Inteiro | Número do local de votação | 1001 |
+| NM_LOCAL_VOTACAO | String | Nome do local de votação | ESC. EST. ... |
+| DS_SITU_SECAO_ACESSIBILIDADE | String | Situação de acessibilidade da seção | Com acessibilidade / Sem acessibilidade |
