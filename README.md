@@ -5,8 +5,6 @@
 **Disciplina: Banco de Dados – 2026.1**
 **Professor: Diego Pessoa**
 
----
-
 # CHECKPOINT C1 — Projeto da Disciplina
 
 ## Participação Eleitoral de Eleitores com Deficiência na Paraíba: Subnotificação Cadastral e Abstenção nas Eleições de 2024
@@ -14,7 +12,6 @@
 **Equipe:** Luciana Norat | Monica Vasconcelos
 **Entrega:** 08/06/2026
 
----
 
 ## 1. Escopo (Definição do Problema)
 
@@ -35,7 +32,6 @@ Arquivos de entrada:
 
 Os dados eleitorais têm hierarquia natural (estado → município → zona → seção), que se mapeia diretamente para documentos JSON aninhados — evitando os múltiplos JOINs necessários em um PostgreSQL relacional. O esquema flexível do MongoDB também acomoda campos opcionais e variações entre os dois arquivos de entrada sem rigidez estrutural.
 
----
 
 ## 2. Entendimento da Fonte de Dados
 
@@ -105,7 +101,6 @@ Os arquivos utilizados não contêm dados pessoais identificáveis — não há 
 | QT_COMPAREC_DEFIC_OBRIGATORIO | Inteiro | PCD com voto obrigatório que compareceram | 4 |
 | QT_ABST_DEFIC_OBRIGATORIO | Inteiro | PCD com voto obrigatório que não compareceram | 1 |
 
----
 
 ## 3. Requisitos de Dados (Perguntas que a Aplicação Responde)
 
@@ -119,17 +114,9 @@ As perguntas abaixo guiam toda a modelagem e cada uma delas se tornará uma cons
 - Quais são os locais de votação (nome e município) que concentram o maior número absoluto de eleitores PCD por seção?
 - Existe diferença no padrão de abstenção de eleitores PCD entre municípios de grande porte (ex.: João Pessoa, Campina Grande) e municípios menores da Paraíba?
 
----
----
 
-# CHECKPOINT C2 — Projeto da Disciplina
+# CHECKPOINT C2
 
-## Participação Eleitoral de Eleitores com Deficiência na Paraíba: Subnotificação Cadastral e Abstenção nas Eleições de 2024
-
-**Equipe:** Luciana Norat | Monica Vasconcelos
-**Entrega:** 15/06/2026
-
----
 
 ## 4. Modelo Conceitual (UML)
 
@@ -198,7 +185,6 @@ O modelo é composto por quatro classes principais: **Municipio**, **ZonaEleitor
 | Composição | SecaoEleitoral ◆→ PerfilEleitor — o perfil não existe sem a seção |
 | Herança/Generalização | PerfilEleitor → PerfilPCD e PerfilNaoPCD |
 
----
 
 ## 5. Projeto do Banco Orientado a Documentos (Mapeamento)
 
@@ -372,17 +358,11 @@ Esta seção documenta o alinhamento entre o modelo conceitual UML, os dados col
 
 **Decisão embed × referência em PerfilEleitor:** embora PerfilEleitor seja conceitualmente parte de SecaoEleitoral (composição), é implementado como coleção separada referenciada por `nrZona + nrSecao`. Dado o volume de ~1,8 milhão de registros, embutir todos os perfis em cada seção excederia o limite de 16 MB do BSON (regras de Coupal, 2019).
 
----
----
 
 # NOTA DE ACRÉSCIMO AO CHECKPOINT C2
 
 *Participação Eleitoral de Eleitores com Deficiência na Paraíba: Subnotificação Cadastral e Abstenção nas Eleições de 2024*
 
-**Equipe:** Luciana Norat | Monica Vasconcelos
-**Elaborado durante o Checkpoint C3 (22/06/2026)**
-
----
 
 ## 6. Introdução e Justificativa do Acréscimo
 
@@ -390,7 +370,6 @@ Durante o planejamento do pipeline de ETL no Checkpoint C3, identificaram-se dua
 
 > *Esta nota deve ser lida em conjunto com o documento do Checkpoint C2 (entregue em 15/06/2026), que permanece válido em sua íntegra exceto pelos pontos aqui revisados. A Figura 1 do C2 (diagrama de classes UML) é reapresentada de forma atualizada na seção 5 desta nota, incorporando os dois ajustes descritos a seguir.*
 
----
 
 ## 7. Ajuste 1 — Terceira Fonte de Dados e Acessibilidade do Local de Votação
 
@@ -427,7 +406,6 @@ Optou-se por manter `localVotacao` embutido em `secoes` (sem criar a coleção `
 
 Esta decisão é válida especificamente para a base histórica de 2024. Para a análise prospectiva das eleições de 2026 (Fase 2 da dissertação), deve-se considerar que: (i) seções eleitorais podem ser remanejadas para locais de votação diferentes dos de 2024; (ii) novas seções podem ser criadas em função do crescimento do eleitorado; e (iii) a quantidade total de seções tende a aumentar. O pipeline de ETL para os dados de 2026 não deve, portanto, assumir que o mapeamento seção→local de votação de 2024 permanece válido, devendo recarregar os dados de localização e acessibilidade a partir dos arquivos do TSE correspondentes ao novo pleito.
 
----
 
 ## 8. Ajuste 2 — Granularidade de Comparecimento e Abstenção
 
@@ -486,7 +464,6 @@ Optou-se por referência (coleção separada), e não por embedding em `zonas`, 
 
 As consultas que relacionam concentração de PCD por zona com taxas de abstenção (núcleo da pergunta de pesquisa do projeto) passam a requerer a combinação de dados agregados de `perfis` (por zona) com `comparecimentoZona`, via `$lookup` ou agregação em pipeline com múltiplos estágios.
 
----
 
 ## 9. Síntese das Alterações
 
@@ -496,7 +473,6 @@ As consultas que relacionam concentração de PCD por zona com taxas de abstenç
 | qtComparecimento / qtAbstencao | Campos em perfis (nível de perfil/seção) | Movidos para nova coleção comparecimentoZona (nível zona+turno) |
 | Fontes de dados | 2 arquivos do TSE | 3 arquivos do TSE |
 
----
 
 ## 10. Diagrama de Classes UML Atualizado (Figura 1 revisada)
 
