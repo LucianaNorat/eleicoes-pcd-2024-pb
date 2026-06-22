@@ -563,4 +563,14 @@ a regra ESR não impõe ordem específica neste caso).
 | Find com filtro e projeção | Seção 6.1 do notebook | — |
 | Dot notation (estrutura embutida) | Seção 6.2 | 5.559 de 10.626 seções (52%) sem acessibilidade |
 | `$elemMatch` (array) | Seção 6.3 | — |
-| Aggregation
+| Aggregation (`$match/$group/$sort/$project`) | Seção 6.4 | Zona 77 (João Pessoa) lidera com 2,92% de PCD |
+| `$lookup` (perfis × comparecimentoZona) | Seção 6.5 | Zona 76: 23,41% de abstenção, apesar de só a 8ª em % de PCD — indício de que outros fatores além da concentração de PCD influenciam a abstenção |
+| `$graphLookup` | Não aplicável | Modelo não possui relacionamento hierárquico recursivo |
+
+### 15.4 Schema Design Pattern (item f)
+
+**Polymorphic Pattern**, aplicado na coleção `perfis`: documentos `PerfilPCD` e
+`PerfilNaoPCD` convivem na mesma coleção, discriminados pelo campo `tipo`. O campo
+`qtEletoresDeficiencia` só existe em documentos `tipo: "PCD"`. Essa escolha evita
+fragmentação em consultas comparativas (PCD vs. não-PCD), que são o núcleo analítico
+do projeto. Justificativa completa na seção 7 do notebook.
