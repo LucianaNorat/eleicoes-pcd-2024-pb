@@ -520,3 +520,47 @@ a ser lido como **três arquivos de entrada**, com a inclusão do terceiro:
 | NR_LOCAL_VOTACAO | Inteiro | Número do local de votação | 1001 |
 | NM_LOCAL_VOTACAO | String | Nome do local de votação | ESC. EST. ... |
 | DS_SITU_SECAO_ACESSIBILIDADE | String | Situação de acessibilidade da seção | Com acessibilidade / Sem acessibilidade |
+
+# SEÇÃO 7 DO CHECKPOINT C3 — Pipeline ETL, Consultas e Desempenho
+
+## 15. Síntese da Implementação (Seção 7 da Especificação)
+
+O pipeline completo (Bronze → Silver → Gold → Carga), as consultas e os índices estão
+implementados no notebook `Eleitores_pcd_2024.ipynb` (pasta raiz deste repositório).
+Esta seção resume os principais resultados, em conformidade com os itens a) a f)
+exigidos.
+
+### 15.1 Carga (item c)
+
+5 coleções carregadas no MongoDB Atlas (banco `eleicoes_pcd_2024`):
+
+| Coleção | Documentos | Observação |
+|---|---|---|
+| municipios | 223 | Completo |
+| zonas | 68 | Completo, nmSede enriquecido via PDF TRE-PB |
+| secoes | 10.626 | Completo, com dsSituAcessibilidade (Arquivo 3) |
+| perfis | 904.077 | Amostra estratificada de 50% (limite do tier gratuito do Atlas — ver seção 4.3.1 do notebook) |
+| comparecimentoZona | 76 | Completo |
+
+### 15.2 Índices e Desempenho (item e)
+
+Consulta testada: perfis PCD de uma zona específica (`{nrZona: 1, tipo: "PCD"}`).
+
+| | Antes do índice | Depois do índice |
+|---|---|---|
+| Estágio | COLLSCAN | FETCH → IXSCAN |
+| Documentos examinados | 904.077 | 428 |
+| Documentos retornados | 428 | 428 |
+| Tempo de execução | 799 ms | 3 ms |
+
+Índice composto criado: `{nrZona: 1, tipo: 1}` (ambos os campos são de igualdade —
+a regra ESR não impõe ordem específica neste caso).
+
+### 15.3 Consultas (item d)
+
+| Requisito | Onde está implementado | Resultado-destaque |
+|---|---|---|
+| Find com filtro e projeção | Seção 6.1 do notebook | — |
+| Dot notation (estrutura embutida) | Seção 6.2 | 5.559 de 10.626 seções (52%) sem acessibilidade |
+| `$elemMatch` (array) | Seção 6.3 | — |
+| Aggregation
