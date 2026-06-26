@@ -1,0 +1,828 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Dashboard — Participação Eleitoral PCD 2024 · PB{% endblock %}
+
+{% block content %}
+
+<!-- ── Cabeçalho do dashboard ────────────────────────────── -->
+<section class="dash-hero">
+  <div class="dash-hero-text">
+    <p class="dash-eyebrow">Eleições Municipais 2024 · Paraíba</p>
+    <h1 class="dash-title">Participação eleitoral<br>de pessoas com deficiência</h1>
+    <p class="dash-subtitle">
+      Análise de subnotificação cadastral e abstenção de eleitores PCD
+      nas 68 zonas eleitorais e 223 municípios da Paraíba.
+    </p>
+  </div>
+  <div class="dash-meta-cards">
+    <div class="meta-card">
+      <span class="meta-value" id="stat-municipios">223</span>
+      <span class="meta-label">municípios</span>
+    </div>
+    <div class="meta-card">
+      <span class="meta-value" id="stat-zonas">68</span>
+      <span class="meta-label">zonas eleitorais</span>
+    </div>
+    <div class="meta-card">
+      <span class="meta-value" id="stat-secoes">10.626</span>
+      <span class="meta-label">seções eleitorais</span>
+    </div>
+    <div class="meta-card meta-card--highlight">
+      <span class="meta-value" id="stat-pcd">~1,8M</span>
+      <span class="meta-label">eleitores (estimativa)</span>
+    </div>
+  </div>
+</section>
+
+<!-- ── Barra de filtros globais ─────────────────────────── -->
+<section class="filter-bar">
+  <div class="filter-group">
+    <label class="filter-label" for="filtro-turno">Turno</label>
+    <div class="filter-toggle" role="group" aria-label="Selecionar turno">
+      <button class="toggle-btn {% if turno_ativo == 1 %}active{% endif %}"
+              data-turno="1" onclick="setTurno(1)">1º turno</button>
+      <button class="toggle-btn {% if turno_ativo == 2 %}active{% endif %}"
+              data-turno="2" onclick="setTurno(2)">2º turno</button>
+    </div>
+  </div>
+
+  <div class="filter-group">
+    <label class="filter-label" for="filtro-municipio">Município</label>
+    <select id="filtro-municipio" onchange="onMunicipioChange()">
+      <option value="">Todos</option>
+      {% for m in municipios %}
+        <option value="{{ m.nmMunicipio }}">{{ m.nmMunicipio }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="filter-group">
+    <label class="filter-label" for="filtro-zona">Zona eleitoral</label>
+    <select id="filtro-zona" onchange="refreshAll()">
+      <option value="">Todas</option>
+      {% for z in zonas %}
+        <option value="{{ z.nrZona }}">Zona {{ z.nrZona }} — {{ z.nmSede }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="filter-group">
+    <label class="filter-label" for="filtro-acessibilidade">Acessibilidade (P6)</label>
+    <select id="filtro-acessibilidade" onchange="carregarLocais()">
+      <option value="">Todas as seções</option>
+      <option value="sim">Com acessibilidade</option>
+      <option value="nao">Sem acessibilidade</option>
+    </select>
+  </div>
+
+  <div class="filter-note">
+    <span class="amostra-badge" title="A coleção perfis contém amostra estratificada de 50%. Proporções são fidedignas; totais absolutos são estimativas × 2.">
+      ⚠ Totais: estimativa × 2
+    </span>
+  </div>
+</section>
+
+<!-- ── Grade de gráficos (revisado para layout em duas colunas) ────────────────────────────────── -->
+<div class="charts-grid">
+
+  <!-- P1 — Subnotificação por município -->
+  <div class="chart-card">
+    <div class="chart-card-header">
+      <div>
+        <p class="chart-eyebrow">Pergunta 1</p>
+        <h2 class="chart-title">Municípios com menor proporção de PCD</h2>
+        <p class="chart-desc">Possível subnotificação cadastral — eleitores declarados como PCD abaixo do esperado</p>
+      </div>
+      <div class="chart-badge">find + aggregation</div>
+    </div>
+    <div class="chart-loading" id="loading-p1">Carregando dados do MongoDB…</div>
+    <canvas id="chart-p1" style="display:none"></canvas>
+  </div>
+
+  <!-- P2 — Distribuição por zona -->
+  <div class="chart-card">
+    <div class="chart-card-header">
+      <div>
+        <p class="chart-eyebrow">Pergunta 2</p>
+        <h2 class="chart-title">% PCD por zona eleitoral</h2>
+        <p class="chart-desc">Distribuição relativa — as zonas com maior concentração de PCD</p>
+      </div>
+      <div class="chart-badge">$group + $sort</div>
+    </div>
+    <div class="chart-loading" id="loading-p2">Carregando…</div>
+    <canvas id="chart-p2" style="display:none"></canvas>
+  </div>
+
+  <!-- P3 — Abstenção vs PCD (scatter) -->
+  <div class="chart-card">
+    <div class="chart-card-header">
+      <div>
+        <p class="chart-eyebrow">Pergunta 3 · $lookup</p>
+        <h2 class="chart-title">Abstenção × concentração de PCD por zona</h2>
+        <p class="chart-desc">
+          Cada ponto é uma zona eleitoral. Eixo X: % de eleitores PCD. Eixo Y: taxa de abstenção.
+          Zonas no quadrante superior direito combinam alta concentração PCD com alta abstenção.
+        </p>
+      </div>
+      <div class="chart-badge chart-badge--lookup">$lookup</div>
+    </div>
+    <div class="chart-loading" id="loading-p3">Cruzando perfis × comparecimentoZona…</div>
+    <canvas id="chart-p3" style="display:none"></canvas>
+  </div>
+
+  <!-- P4 — PCD obrigatório vs geral -->
+  <div class="chart-card">
+    <div class="chart-card-header">
+      <div>
+        <p class="chart-eyebrow">Pergunta 4</p>
+        <h2 class="chart-title">Abstenção: PCD vs geral</h2>
+        <p class="chart-desc">Por zona — eleitores PCD abstêm mais ou menos que a média?</p>
+      </div>
+      <div class="chart-badge">comparecimentoZona</div>
+    </div>
+    <div class="chart-loading" id="loading-p4">Carregando…</div>
+    <canvas id="chart-p4" style="display:none"></canvas>
+  </div>
+
+  <!-- P5 — Perfil demográfico (heatmap via bar agrupado) -->
+  <div class="chart-card">
+    <div class="chart-card-header">
+      <div>
+        <p class="chart-eyebrow">Pergunta 5</p>
+        <h2 class="chart-title">PCD por faixa etária e gênero</h2>
+        <p class="chart-desc">Perfil demográfico dos eleitores com deficiência</p>
+      </div>
+      <div class="chart-badge">$group 2 campos</div>
+    </div>
+    <div class="chart-loading" id="loading-p5">Carregando…</div>
+    <canvas id="chart-p5" style="display:none"></canvas>
+  </div>
+
+  <!-- P7 — Porte de município -->
+  <div class="chart-card">
+    <div class="chart-card-header">
+      <div>
+        <p class="chart-eyebrow">Pergunta 7</p>
+        <h2 class="chart-title">Abstenção PCD: municípios grandes vs pequenos</h2>
+        <p class="chart-desc">Municípios grandes: ≥ 50.000 eleitores estimados</p>
+      </div>
+      <div class="chart-badge">$lookup multi</div>
+    </div>
+    <div class="chart-loading" id="loading-p7">Carregando…</div>
+    <canvas id="chart-p7" style="display:none"></canvas>
+  </div>
+
+</div><!-- /charts-grid -->
+
+<!-- ── P6 — Tabela de locais de votação ─────────────────── -->
+<section class="table-section">
+  <div class="table-header">
+    <div>
+      <p class="chart-eyebrow">Pergunta 6 · dot notation + $lookup</p>
+      <h2 class="chart-title">Locais de votação com maior concentração de PCD</h2>
+      <p class="chart-desc">
+        Cruza seções eleitorais com localVotacao.dsSituAcessibilidade (Arquivo 3).
+        Use o filtro de acessibilidade acima para refinar.
+      </p>
+    </div>
+    <div class="table-controls">
+      <button class="btn-export" onclick="exportarCSV()">
+        ↓ Exportar CSV
+      </button>
+    </div>
+  </div>
+  <div class="chart-loading" id="loading-p6">Carregando locais…</div>
+  <div class="table-wrap" id="table-p6-wrap" style="display:none">
+    <table id="table-p6">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Local de votação</th>
+          <th>Município</th>
+          <th>Zona</th>
+          <th>Seção</th>
+          <th>PCD estimados</th>
+          <th>Acessibilidade</th>
+        </tr>
+      </thead>
+      <tbody id="tbody-p6"></tbody>
+    </table>
+  </div>
+</section>
+
+{% endblock %}
+
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script>
+/* ================================================================
+   Estado global e helpers
+   ================================================================ */
+const state = {
+  turno: {{ turno_ativo }},
+  municipio: "",
+  zona: "",
+  acessibilidade: "",
+};
+
+const charts = {};
+
+function getParams(extras = {}) {
+  const p = new URLSearchParams();
+  p.set("turno", state.turno);
+  if (state.municipio) p.set("municipio", state.municipio);
+  if (state.zona)      p.set("zona", state.zona);
+  Object.entries(extras).forEach(([k, v]) => { if (v) p.set(k, v); });
+  return p.toString();
+}
+
+async function fetchAPI(endpoint, params = "") {
+  const r = await fetch(`/api/${endpoint}/?${params}`);
+  if (!r.ok) throw new Error(`Erro ${r.status} em /api/${endpoint}/`);
+  return r.json();
+}
+
+function destroyChart(id) {
+  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+}
+
+function showChart(canvasId, loadingId) {
+  document.getElementById(loadingId).style.display = "none";
+  document.getElementById(canvasId).style.display = "block";
+}
+
+function showLoading(canvasId, loadingId) {
+  document.getElementById(loadingId).style.display = "flex";
+  document.getElementById(canvasId).style.display = "none";
+}
+
+/* Cores consistentes entre gráficos */
+const COR_PCD    = "rgba(99, 153, 34, 0.85)";   /* verde PCD */
+const COR_GERAL  = "rgba(55, 138, 221, 0.75)";   /* azul geral */
+const COR_ABST   = "rgba(216, 90, 48, 0.85)";    /* coral abstenção */
+const COR_MASC   = "rgba(83, 74, 183, 0.85)";    /* roxo masculino */
+const COR_FEM    = "rgba(212, 83, 126, 0.8)";    /* rosa feminino */
+const COR_NB     = "rgba(186, 117, 23, 0.8)";    /* âmbar outros */
+
+/* ==========================================================
+   CONFIGURAÇÃO GLOBAL DO CHART.JS
+========================================================== */
+
+Chart.defaults.font.family = "Inter, Arial, sans-serif";
+Chart.defaults.font.size = 12;
+
+Chart.defaults.color = "#5F5E5A";
+Chart.defaults.borderColor = "rgba(0,0,0,.08)";
+
+Chart.defaults.plugins.legend.position = "bottom";
+
+Chart.defaults.plugins.legend.labels = {
+    usePointStyle: true,
+    pointStyle: "circle",
+    padding: 18,
+    boxWidth: 10,
+    font: {
+        size: 12,
+        weight: "600"
+    }
+};
+
+Chart.defaults.plugins.tooltip.backgroundColor = "#2C2C2A";
+Chart.defaults.plugins.tooltip.titleColor = "#FFF";
+Chart.defaults.plugins.tooltip.bodyColor = "#FFF";
+Chart.defaults.plugins.tooltip.cornerRadius = 12;
+Chart.defaults.plugins.tooltip.padding = 14;
+
+Chart.defaults.elements.bar.borderRadius = 8;
+Chart.defaults.elements.bar.borderSkipped = false;
+
+Chart.defaults.elements.point.radius = 5;
+Chart.defaults.elements.point.hoverRadius = 8;
+
+const chartAreaBackground = {
+
+    id: "chartAreaBackground",
+
+    beforeDraw(chart) {
+
+        const { ctx, chartArea } = chart;
+
+        if (!chartArea) return;
+
+        ctx.save();
+
+        ctx.fillStyle = "#FCFCFA";
+
+        ctx.fillRect(
+            chartArea.left,
+            chartArea.top,
+            chartArea.right - chartArea.left,
+            chartArea.bottom - chartArea.top
+        );
+
+        ctx.restore();
+    }
+
+};
+
+Chart.register(chartAreaBackground);
+
+
+/* ================================================================
+   P1 — Subnotificação por município
+   ================================================================ */
+async function carregarP1() {
+  showLoading("chart-p1", "loading-p1");
+  destroyChart("p1");
+  try {
+    const json = await fetchAPI("subnotificacao", getParams({ limit: 20 }));
+    const dados = json.dados;
+
+    showChart("chart-p1", "loading-p1");
+    const ctx = document.getElementById("chart-p1").getContext("2d");
+    charts["p1"] = new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels: dados.map(d => d.nmMunicipio),
+        datasets: [{
+          label: "% de eleitores PCD",
+          data: dados.map(d => d.pctPCD),
+          backgroundColor: dados.map(d =>
+            d.pctPCD < 0.5 ? "rgba(226, 75, 74, 0.85)" :
+            d.pctPCD < 1.0 ? "rgba(186, 117, 23, 0.85)" :
+                             COR_PCD
+          ),
+          borderRadius: 4,
+          borderSkipped: false,
+        }],
+      },
+      options: {
+        indexAxis: "y",
+        responsive: true,
+        maintainAspectRatio: false,
+
+        interaction: {
+            mode: "index",
+            intersect: false
+        },
+
+        animation: {
+            duration: 900,
+            easing: "easeOutQuart"
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: ctx => ` ${ctx.raw}% de PCD — ${dados[ctx.dataIndex].totalPCD.toLocaleString("pt-BR")} eleitores estimados`,
+            },
+          },
+        },
+        scales: {
+          x: {
+            title: { display: true, text: "% eleitores PCD sobre total" },
+            ticks: { callback: v => v + "%" },
+          },
+          y: { ticks: { font: { size: 11 } } },
+        },
+      },
+    });
+  } catch (e) {
+    document.getElementById("loading-p1").textContent = "Erro ao carregar dados: " + e.message;
+  }
+}
+
+/* ================================================================
+   P2 — Distribuição de PCD por zona
+   ================================================================ */
+async function carregarP2() {
+  showLoading("chart-p2", "loading-p2");
+  destroyChart("p2");
+  try {
+    const params = getParams({ limit: 30 });
+    const json = await fetchAPI("distribuicao-zona", params);
+    const dados = json.dados.slice(0, 20);
+
+    showChart("chart-p2", "loading-p2");
+    const ctx = document.getElementById("chart-p2").getContext("2d");
+    charts["p2"] = new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels: dados.map(d => `Zona ${d.nrZona}`),
+        datasets: [{
+          label: "% PCD",
+          data: dados.map(d => d.pctPCD),
+          backgroundColor: COR_PCD,
+          borderRadius: 3,
+          borderSkipped: false,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+
+        interaction: {
+            mode: "index",
+            intersect: false
+        },
+
+        animation: {
+            duration: 900,
+            easing: "easeOutQuart"
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: (items) => {
+                const d = dados[items[0].dataIndex];
+                return `Zona ${d.nrZona} — ${d.nmSede}`;
+              },
+              label: ctx => ` ${ctx.raw}% PCD`,
+            },
+          },
+        },
+        scales: {
+          y: { ticks: { callback: v => v + "%" } },
+          x: { ticks: { font: { size: 10 } } },
+        },
+      },
+    });
+  } catch (e) {
+    document.getElementById("loading-p2").textContent = "Erro: " + e.message;
+  }
+}
+
+/* ================================================================
+   P3 — Abstenção × concentração PCD (scatter) — usa $lookup
+   ================================================================ */
+async function carregarP3() {
+  showLoading("chart-p3", "loading-p3");
+  destroyChart("p3");
+  try {
+    const json = await fetchAPI("abstencao-vs-pcd", getParams());
+    const dados = json.dados.filter(d => d.pctPCD != null && d.pctAbstencao != null);
+
+    showChart("chart-p3", "loading-p3");
+    const ctx = document.getElementById("chart-p3").getContext("2d");
+    charts["p3"] = new Chart(ctx, {
+      type: "scatter",
+      data: {
+        datasets: [{
+          label: "Zona eleitoral",
+          data: dados.map(d => ({ x: d.pctPCD, y: d.pctAbstencao, zona: d })),
+          backgroundColor: COR_PCD,
+          pointRadius: 7,
+          pointHoverRadius: 10,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+
+        interaction: {
+            mode: "index",
+            intersect: false
+        },
+
+        animation: {
+            duration: 900,
+            easing: "easeOutQuart"
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: () => "",
+              label: (ctx) => {
+                const z = ctx.raw.zona;
+                return [
+                  `Zona ${z.nrZona} — ${z.nmSede || ""}`,
+                  `% PCD: ${z.pctPCD}%`,
+                  `Abstenção geral: ${z.pctAbstencao}%`,
+                  `Abstenção PCD: ${z.pctAbstencaoPCD}%`,
+                ];
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            title: { display: true, text: "% de eleitores PCD por zona" },
+            ticks: { callback: v => v + "%" },
+          },
+          y: {
+            title: { display: true, text: "Taxa de abstenção (%)" },
+            ticks: { callback: v => v + "%" },
+          },
+        },
+      },
+    });
+  } catch (e) {
+    document.getElementById("loading-p3").textContent = "Erro: " + e.message;
+  }
+}
+
+/* ================================================================
+   P4 — Abstenção PCD vs geral (grouped bar)
+   ================================================================ */
+async function carregarP4() {
+  showLoading("chart-p4", "loading-p4");
+  destroyChart("p4");
+  try {
+    const json = await fetchAPI("pcd-obrigatorio", getParams());
+    // Ordenar por diferença (PCD - Geral), mostrar top 15
+    const dados = json.dados
+      .filter(d => d.pctAbstencaoPCD > 0)
+      .sort((a, b) => (b.pctAbstencaoPCD - b.pctAbstencaoGeral) - (a.pctAbstencaoPCD - a.pctAbstencaoGeral))
+      .slice(0, 15);
+
+    showChart("chart-p4", "loading-p4");
+    const ctx = document.getElementById("chart-p4").getContext("2d");
+    charts["p4"] = new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels: dados.map(d => `Z.${d.nrZona}`),
+        datasets: [
+          {
+            label: "Abstenção geral (%)",
+            data: dados.map(d => d.pctAbstencaoGeral),
+            backgroundColor: COR_GERAL,
+            borderRadius: 3,
+          },
+          {
+            label: "Abstenção PCD (%)",
+            data: dados.map(d => d.pctAbstencaoPCD),
+            backgroundColor: COR_ABST,
+            borderRadius: 3,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+
+        interaction: {
+            mode: "index",
+            intersect: false
+        },
+
+        animation: {
+            duration: 900,
+            easing: "easeOutQuart"
+        },
+        plugins: {
+          tooltip: {
+            callbacks: {
+              title: (items) => {
+                const d = dados[items[0].dataIndex];
+                return `Zona ${d.nrZona} — ${d.nmSede || ""}`;
+              },
+            },
+          },
+        },
+        scales: {
+          y: { ticks: { callback: v => v + "%" } },
+          x: { ticks: { font: { size: 10 } } },
+        },
+      },
+    });
+  } catch (e) {
+    document.getElementById("loading-p4").textContent = "Erro: " + e.message;
+  }
+}
+
+/* ================================================================
+   P5 — Perfil demográfico (faixa etária × gênero)
+   ================================================================ */
+async function carregarP5() {
+  showLoading("chart-p5", "loading-p5");
+  destroyChart("p5");
+  try {
+    const json = await fetchAPI("perfil-demografico", getParams());
+    const dados = json.dados;
+
+    // Pivotar: faixas como labels, gêneros como datasets
+    const faixas = [...new Set(dados.map(d => d.faixaEtaria))].sort();
+    const generos = [...new Set(dados.map(d => d.genero))];
+
+    const cores = { "FEMININO": COR_FEM, "MASCULINO": COR_MASC };
+    const datasets = generos.map(gen => ({
+      label: gen.charAt(0) + gen.slice(1).toLowerCase(),
+      data: faixas.map(f => {
+        const item = dados.find(d => d.faixaEtaria === f && d.genero === gen);
+        return item ? item.totalPCD : 0;
+      }),
+      backgroundColor: cores[gen] || COR_NB,
+      borderRadius: 3,
+    }));
+
+    showChart("chart-p5", "loading-p5");
+    const ctx = document.getElementById("chart-p5").getContext("2d");
+    charts["p5"] = new Chart(ctx, {
+      type: "bar",
+      data: { labels: faixas, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+
+        interaction: {
+            mode: "index",
+            intersect: false
+        },
+
+        animation: {
+            duration: 900,
+            easing: "easeOutQuart"
+        },
+        scales: {
+          x: { stacked: false, ticks: { font: { size: 10 } } },
+          y: {
+            title: { display: true, text: "Eleitores PCD (estimativa)" },
+            ticks: { callback: v => v.toLocaleString("pt-BR") },
+          },
+        },
+      },
+    });
+  } catch (e) {
+    document.getElementById("loading-p5").textContent = "Erro: " + e.message;
+  }
+}
+
+/* ================================================================
+   P6 — Tabela: locais de votação com mais PCD
+   ================================================================ */
+async function carregarLocais() {
+  state.acessibilidade = document.getElementById("filtro-acessibilidade").value;
+  document.getElementById("loading-p6").style.display = "flex";
+  document.getElementById("table-p6-wrap").style.display = "none";
+
+  try {
+    const params = getParams({ acessibilidade: state.acessibilidade, limit: 50 });
+    const json = await fetchAPI("locais-votacao", params);
+    const dados = json.dados;
+
+    const tbody = document.getElementById("tbody-p6");
+    tbody.innerHTML = dados.map((d, i) => `
+      <tr class="${d.dsSituAcessibilidade && d.dsSituAcessibilidade.toLowerCase().includes('sem') ? 'row-sem-acesso' : ''}">
+        <td class="td-num">${i + 1}</td>
+        <td>${d.nmLocalVotacao || "—"}</td>
+        <td>${d.nmMunicipio || "—"}</td>
+        <td class="td-num">Zona ${d.nrZona}</td>
+        <td class="td-num">§ ${d.nrSecao}</td>
+        <td class="td-num">${(d.totalPCD || 0).toLocaleString("pt-BR")}</td>
+        <td>
+          <span class="badge-acesso ${d.dsSituAcessibilidade && !d.dsSituAcessibilidade.toLowerCase().includes('sem') ? 'badge-sim' : 'badge-nao'}">
+            ${d.dsSituAcessibilidade || "—"}
+          </span>
+        </td>
+      </tr>
+    `).join("");
+
+    document.getElementById("loading-p6").style.display = "none";
+    document.getElementById("table-p6-wrap").style.display = "block";
+  } catch (e) {
+    document.getElementById("loading-p6").textContent = "Erro: " + e.message;
+  }
+}
+
+/* ================================================================
+   P7 — Porte de município
+   ================================================================ */
+async function carregarP7() {
+  showLoading("chart-p7", "loading-p7");
+  destroyChart("p7");
+  try {
+    const json = await fetchAPI("porte-municipio", getParams());
+    const dados = json.dados;
+
+    showChart("chart-p7", "loading-p7");
+    const ctx = document.getElementById("chart-p7").getContext("2d");
+    charts["p7"] = new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels: dados.map(d => d.porte === "grande" ? "Municípios grandes\n(≥50 mil eleitores)" : "Municípios pequenos\n(<50 mil eleitores)"),
+        datasets: [{
+          label: "Abstenção PCD (%)",
+          data: dados.map(d => d.pctAbstencaoPCD),
+          backgroundColor: [COR_ABST, COR_GERAL],
+          borderRadius: 6,
+          borderSkipped: false,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+
+        interaction: {
+            mode: "index",
+            intersect: false
+        },
+
+        animation: {
+            duration: 900,
+            easing: "easeOutQuart"
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              afterLabel: (ctx) => {
+                const d = dados[ctx.dataIndex];
+                return `${d.qtMunicipios} municípios · ${d.qtAbstencaoPCD.toLocaleString("pt-BR")} PCD ausentes`;
+              },
+            },
+          },
+        },
+        scales: {
+          y: {
+            grid: {
+                color: "rgba(0,0,0,.05)",
+                drawBorder: false
+            },
+            title: { display: true, text: "% abstenção PCD" },
+            ticks: { callback: v => v + "%", padding: 8 },
+          },
+        },
+      },
+    });
+  } catch (e) {
+    document.getElementById("loading-p7").textContent = "Erro: " + e.message;
+  }
+}
+
+/* ================================================================
+   Controles de filtro
+   ================================================================ */
+function setTurno(n) {
+  state.turno = n;
+  document.querySelectorAll(".toggle-btn").forEach(b => {
+    b.classList.toggle("active", parseInt(b.dataset.turno) === n);
+  });
+  refreshAll();
+}
+
+/* Guarda o HTML original do select de zonas para restaurar quando municipio for limpo */
+let _zonasOriginais = null;
+
+function onMunicipioChange() {
+  state.municipio = document.getElementById("filtro-municipio").value;
+  const sel = document.getElementById("filtro-zona");
+
+  if (!_zonasOriginais) _zonasOriginais = sel.innerHTML;
+
+  if (state.municipio) {
+    fetch(`/api/zonas-por-municipio/?municipio=${encodeURIComponent(state.municipio)}`)
+      .then(r => r.json())
+      .then(json => {
+        sel.innerHTML = '<option value="">Todas</option>' +
+          json.dados.map(z => `<option value="${z.nrZona}">Zona ${z.nrZona} — ${z.nmSede}</option>`).join("");
+        state.zona = "";
+        refreshAll();
+      });
+  } else {
+    sel.innerHTML = _zonasOriginais;
+    sel.value = "";
+    state.zona = "";
+    refreshAll();
+  }
+}
+
+function refreshAll() {
+  state.zona = document.getElementById("filtro-zona").value;
+  carregarP1();
+  carregarP2();
+  carregarP3();
+  carregarP4();
+  carregarP5();
+  carregarLocais();
+  carregarP7();
+}
+
+/* ================================================================
+   Export CSV (P6)
+   ================================================================ */
+function exportarCSV() {
+  const rows = [["#", "Local", "Município", "Zona", "Seção", "PCD estimados", "Acessibilidade"]];
+  document.querySelectorAll("#tbody-p6 tr").forEach((tr, i) => {
+    const tds = [...tr.querySelectorAll("td")].map(td => `"${td.textContent.trim()}"`);
+    rows.push(tds);
+  });
+  const csv = rows.map(r => r.join(",")).join("\n");
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "locais_pcd_pb_2024.csv"; a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ================================================================
+   Inicialização
+   ================================================================ */
+document.addEventListener("DOMContentLoaded", () => {
+  refreshAll();
+});
+</script>
+{% endblock %}

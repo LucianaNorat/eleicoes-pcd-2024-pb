@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Eleições PCD 2024 — Paraíba{% endblock %}</title>
+  {% load static %}
+  <link rel="stylesheet" href="{% static 'css/main.css' %}" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="header-brand">
+        <span class="brand-pill">PCD</span>
+        <span class="brand-title">Eleições 2024 · Paraíba</span>
+      </div>
+      <nav class="header-nav">
+        <a href="{% url 'core:dashboard' %}">Dashboard</a>
+        <!-- <a href="{% url 'api:locais_votacao' %}" target="_blank" class="nav-link-api">API</a> -->
+         <a href="/api/locais-votacao/" target="_blank" class="nav-link-api">API</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="main-content">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    <span>IFPB · Mestrado Profissional em TI · Banco de Dados 2026.1</span>
+    <span>Fonte: <a href="https://dadosabertos.tse.jus.br" target="_blank">TSE Dados Abertos</a> · CC</span>
+  </footer>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>
