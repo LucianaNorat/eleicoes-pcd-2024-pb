@@ -1,86 +1,76 @@
-# Otimização de Performance — Consulta Mais Frequente do Projeto (Checkpoint C3)
+# Otimização de Performance — Consulta da Tabela `locais_votacao`
 
 ## Contexto
 
-Antes de qualquer otimização, foi avaliada a consulta mais frequente do projeto: buscar perfis PCD de uma zona eleitoral específica.
+O dashboard (`eleicoes-pcd-2024-pb`) apresentava lentidão perceptível ao carregar a tabela **`locais_votacao`**, enquanto os gráficos do painel carregavam rapidamente. A investigação identificou que a consulta da tabela executa um `aggregate()` na coleção `perfis` (904.077 documentos), filtrando por `{"tipo": "PCD"}`, agrupando por `nrZona` + `nrSecao`, e ordenando o resultado.
+
+Diferente dos gráficos — que agrupam apenas por `nrZona` (68 grupos) — a tabela agrupa por `nrZona` + `nrSecao` (até ~10.626 combinações possíveis), tornando-a naturalmente mais pesada.
+
+## Pipeline analisada
 
 ```python
-banco["perfis"].find({"nrZona": 1, "tipo": "PCD"})
+pipeline_tabela = [
+    {"$match": {"tipo": "PCD"}},
+    {"$group": {
+        "_id": {"nrZona": "$nrZona", "nrSecao": "$nrSecao"},
+        "totalPCD": {"$sum": 1}
+    }},
+    {"$sort": {"_id.nrZona": 1, "_id.nrSecao": 1}},
+    {"$limit": 50}
+]
 ```
-
-Como a coleção `perfis` não tinha nenhum índice (além do `_id` padrão), essa consulta exigia uma varredura completa da coleção.
 
 ## Metodologia
 
-A consulta foi avaliada com `explain()` antes e depois da criação do índice:
+Para cada cenário, a consulta foi avaliada com:
 
 ```python
-banco["perfis"].find({"nrZona": 1, "tipo": "PCD"}).explain()
+banco.command(
+    "explain",
+    {"aggregate": "perfis", "pipeline": pipeline_tabela, "cursor": {}},
+    verbosity="executionStats"
+)
 ```
 
-## Passo 1 — Antes do índice
+## Resultados — evolução em três etapas
 
-```python
-resultado_antes = banco["perfis"].find(
-    {"nrZona": 1, "tipo": "PCD"}
-).explain()
+| Cenário | Índice usado | Estágio do plano | Tempo de execução | Documentos examinados | Chaves de índice examinadas |
+|---|---|---|---|---|---|
+| **1. Sem índice** | nenhum | `COLLSCAN` | 1759 ms | 904.077 | 0 |
+| **2. Índice simples** | `tipo_1` | `IXSCAN → FETCH` | 157 ms | 12.032 | 12.032 |
+| **3. Índice composto** | `tipo_1_nrZona_1_nrSecao_1` | `IXSCAN → PROJECTION_COVERED` | **26 ms** | **0** | 12.032 |
 
-print(resultado_antes["executionStats"]["executionStages"]["stage"])
-print(resultado_antes["executionStats"]["totalDocsExamined"])
-print(resultado_antes["executionStats"]["nReturned"])
-print(resultado_antes["executionStats"]["executionTimeMillis"])
-```
-
-**Resultado:** estágio `COLLSCAN`, com **904.077 documentos examinados** e **799 ms** de tempo de execução, para retornar apenas um pequeno subconjunto de documentos.
-
-## Passo 2 — Criação do índice composto `{nrZona, tipo}`
-
-```python
-banco["perfis"].create_index([("nrZona", 1), ("tipo", 1)])
-```
-
-**Por que essa combinação de campos:** a consulta filtra por dois campos de **igualdade exata** ao mesmo tempo — `nrZona` e `tipo`. Pela regra ESR (Equality, Sort, Range), quando todos os campos são de igualdade, a ordem entre eles não afeta o desempenho da busca — por isso `{nrZona, tipo}` e `{tipo, nrZona}` seriam equivalentes neste caso específico.
-
-## Passo 3 — Depois do índice
-
-```python
-resultado_depois = banco["perfis"].find(
-    {"nrZona": 1, "tipo": "PCD"}
-).explain()
-
-print(resultado_depois["executionStats"]["executionStages"]["stage"])
-print(resultado_depois["executionStats"]["totalDocsExamined"])
-print(resultado_depois["executionStats"]["nReturned"])
-print(resultado_depois["executionStats"]["executionTimeMillis"])
-
-# Verificação do índice realmente utilizado
-print(resultado_depois["executionStats"]["executionStages"]["inputStage"]["stage"])
-print(resultado_depois["executionStats"]["executionStages"]["inputStage"]["indexName"])
-```
-
-**Resultado:** estágio `FETCH` (com `IXSCAN` no sub-estágio interno), usando o índice `nrZona_1_tipo_1`, com **428 documentos examinados** e **3 ms** de tempo de execução.
-
-## Comparação
-
-| Métrica | Sem índice | Com índice `nrZona_1_tipo_1` |
-|---|---|---|
-| **Estágio do plano** | `COLLSCAN` | `IXSCAN → FETCH` |
-| **Tempo de execução** | 799 ms | **3 ms** |
-| **Documentos examinados** | 904.077 | **428** |
-
-**Ganho: de 799 ms para 3 ms — cerca de 266x mais rápido**, com a quantidade de documentos examinados reduzida de mais de 900 mil para apenas 428 (os que realmente satisfazem o filtro de zona + tipo).
+**Ganho total: de 1759 ms para 26 ms — aproximadamente 68x mais rápido.**
 
 ## Análise técnica
 
-Sem índice, o MongoDB precisa abrir cada um dos 904.077 documentos da coleção `perfis` para verificar se ele satisfaz `{"nrZona": 1, "tipo": "PCD"}` — uma varredura completa (`COLLSCAN`).
+### Cenário 1 — Sem índice (COLLSCAN)
+Sem nenhum índice cobrindo o campo `tipo`, o MongoDB examina **todos** os 904.077 documentos da coleção para encontrar os que satisfazem `{"tipo": "PCD"}` (apenas ~12 mil). É o gargalo clássico de uma varredura completa de coleção.
 
-Com o índice composto `{nrZona: 1, tipo: 1}`, o MongoDB consulta diretamente a estrutura ordenada do índice (`IXSCAN`) para localizar os documentos que combinam zona 1 e tipo PCD, e só então abre (`FETCH`) os 428 documentos efetivamente encontrados — eliminando a necessidade de examinar os demais.
+### Cenário 2 — Índice simples em `tipo`
+Criado com:
+```python
+colecao_perfis.create_index("tipo")
+```
+O índice permite ao MongoDB localizar diretamente os 12.032 documentos PCD via `IXSCAN`, sem abrir os demais ~892 mil documentos. Porém, como o índice cobre apenas o campo `tipo`, o motor ainda precisa de um estágio `FETCH` — abrir cada um dos 12.032 documentos para ler os campos `nrZona` e `nrSecao`, necessários para o `$group`.
 
-Esse índice foi a primeira otimização de performance aplicada ao projeto e serviu de base metodológica para a investigação posterior de lentidão na tabela `locais_votacao` do dashboard (documentada separadamente em `Otimizacao_Indice_Perfis_Dashboard.md`), que aplicou a mesma abordagem de comparação antes/depois via `explain()`.
+### Cenário 3 — Índice composto `{tipo, nrZona, nrSecao}`
+Criado com:
+```python
+colecao_perfis.create_index([("tipo", 1), ("nrZona", 1), ("nrSecao", 1)])
+```
+Seguindo a regra ESR (Equality, Sort, Range), o campo de igualdade (`tipo`) vem primeiro, seguido dos campos usados no agrupamento/ordenação (`nrZona`, `nrSecao`).
 
-## Observação sobre o Polymorphic Pattern
+Como o índice agora contém os três campos necessários à consulta, o MongoDB resolve tudo **apenas lendo o índice** — sem nunca abrir o documento original. Isso é confirmado pelo estágio `PROJECTION_COVERED` e por `totalDocsExamined: 0`. Trata-se de uma *covered query*: o nível mais eficiente de consulta possível, pois elimina o custo de acesso ao documento (`FETCH`).
 
-Essa consulta também evidencia, na prática, a utilidade do **Polymorphic Pattern** adotado na coleção `perfis`: o campo discriminador `tipo` (`"PCD"` / `"NAO_PCD"`) permite filtrar facilmente um subtipo específico de perfil dentro da mesma coleção, sem necessidade de `$lookup` entre coleções separadas.
+O plano com o índice simples (`tipo_1` + `FETCH`) foi avaliado pelo otimizador do MongoDB e listado em `rejectedPlans` — evidência de que o motor de consultas compara alternativas e escolhe automaticamente o plano mais eficiente disponível.
+
+### Limite da otimização por índice
+Os 26 ms restantes correspondem ao trabalho que nenhum índice elimina: o `$group` (consolidar 12.032 documentos em 6.515 grupos por zona/seção) e o `$sort`/`$limit` finais. Índices otimizam a *localização* dos dados; o processamento sobre os dados já selecionados (agregações, ordenações) é custo computacional inerente à consulta.
+
+## Conclusão
+
+A criação do índice composto `{tipo: 1, nrZona: 1, nrSecao: 1}` na coleção `perfis` resolveu o gargalo de performance identificado na tabela `locais_votacao` do dashboard, reduzindo o tempo de execução de **1759 ms para 26 ms** e eliminando por completo a necessidade de leitura de documentos (`totalDocsExamined: 0`), por meio de uma *covered query*.
 
 ---
-*Documentação gerada como parte do Checkpoint C3 — Projeto "Participação Eleitoral de Eleitores com Deficiência na Paraíba (2024)".*
+*Documentação gerada como parte do Checkpoint C4 — Projeto "Participação Eleitoral de Eleitores com Deficiência na Paraíba (2024)".*
